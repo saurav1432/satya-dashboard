@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>satya, what the evidence says</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0e1116; --panel: #161b22; --line: #2a313a; --text: #e6edf3; --dim: #8b949e;
+    --bad: #f85149; --good: #3fb950; --warn: #d29922; --accent: #58a6ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f8fa; --panel: #fff; --line: #d8dee4; --text: #1f2328; --dim: #656d76;
+            --bad: #cf222e; --good: #1a7f37; --warn: #9a6700; --accent: #0969da; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+         font: 14px/1.45 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+         /* Without this a wide table drags the whole page sideways on a phone,
+            which hides the rightmost column, and the verdict lives there. */
+         overflow-x: hidden; }
+  header { max-width: 1200px; margin: 0 auto 18px; display: flex; justify-content: space-between;
+           align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  .stamp { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  /* minmax(0, 1fr) rather than the default auto: an auto track grows to its
+     widest content, so one wide table stretched every panel to 629px inside a
+     390px phone. Caught with Playwright at 390 wide, not by eye. */
+  main { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+           /* A grid item will not shrink below its content unless told to, which is
+              what let the tables force the page wide in the first place. */
+           min-width: 0; }
+  .panel.missing { border-style: dashed; color: var(--dim); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+       margin: 0 0 12px; font-weight: 600; }
+  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+       margin: 14px 0 6px; font-weight: 600; }
+  .headline .big-answer { font-size: 44px; font-weight: 700; margin: 4px 0 14px; }
+  .metrics { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+  /* flex-basis of 120px with no shrink pushed the last tile off screen on a
+     narrow phone. Allowing them to shrink keeps every tile visible. */
+  .metric { flex: 1 1 110px; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .metric .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .metric .l { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .metric.bad .v { color: var(--bad); }
+  .metric.good .v { color: var(--good); }
+  /* Tables scroll inside their own panel rather than moving the page. */
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Without a floor the columns squeeze until "Worse than buying any liquid
+     stock" wraps over five lines on a phone. Swiping a table is better than
+     reading one word per line. */
+  .scroll table { min-width: 460px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+       color: var(--dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tr.best td { background: color-mix(in srgb, var(--good) 10%, transparent); }
+  .num { text-align: right; }
+  .dim { color: var(--dim); }
+  .pos { color: var(--good); }
+  .neg { color: var(--bad); }
+  .warn { color: var(--warn); font-weight: 600; }
+  .light { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+           font-weight: 700; letter-spacing: .04em; }
+  .light.no { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  .light.weak { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .light.yes { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .headline .light { font-size: 34px; padding: 6px 22px; }
+  .track { display: inline-block; width: 64px; height: 7px; border-radius: 4px;
+           background: var(--line); overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .bar { display: block; height: 100%; background: var(--accent); }
+  .dim-bar { background: var(--dim); }
+  .good-bar { background: var(--good); }
+  .bad-bar { background: var(--bad); }
+  /* Keeps the bar and its number on one line: the column is narrow and the
+     value was wrapping under the bar, leaving a stray "t" on its own row. */
+  .meter { white-space: nowrap; }
+  .t { font-size: 11px; color: var(--dim); }
+  /* A scrollable region must be reachable without a mouse. */
+  .scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chips { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; padding: 0; margin: 0; }
+  .chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--line); }
+  .chip.ok { color: var(--text); }
+  .chip.no { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+  .note { font-size: 12px; color: var(--dim); margin: 10px 0 0; }
+  @media (min-width: 900px) { .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; } }
+  .two { min-width: 0; display: grid; gap: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>satya &middot; what the evidence says</h1>
+  <div class="stamp">built 2026-09-06 11:51 UTC &middot; last collection 2026-09-06</div>
+</header>
+<main>
+  
+<section class="panel headline" aria-labelledby="h-verdict">
+  <h2 id="h-verdict">Can this tell you what to buy?</h2>
+  <div class="big-answer"><span class="light no" role="img" aria-label="NO">NO</span></div>
+  <div class="metrics">
+    <div class="metric plain"><div class="v">8</div><div class="l">ideas tested</div></div>
+    <div class="metric bad"><div class="v">8</div><div class="l">ideas killed</div></div>
+    <div class="metric bad"><div class="v">0</div><div class="l">tradable signals found</div></div>
+    <div class="metric plain"><div class="v">3.0</div><div class="l">evidence bar, t statistic</div></div>
+  </div>
+</section>
+  
+<section class="panel" aria-labelledby="h-killed">
+  <h2 id="h-killed">What was tested</h2>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>#</th><th>Idea</th><th>Scale</th><th>Result</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="dim">1</td>
+        <td>Breakout screening</td>
+        <td class="dim">5,342 trading days</td>
+        <td>Worse than buying any liquid stock</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">2</td>
+        <td>Stop losses and exit rules</td>
+        <td class="dim">every variant tried</td>
+        <td>All made results worse</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">3</td>
+        <td>Momentum</td>
+        <td class="dim">21.3 years</td>
+        <td>t 2.19 against a bar of 3.0</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">4</td>
+        <td>Global shocks moving India</td>
+        <td class="dim">48 links</td>
+        <td>Oil moves India by 0.02%</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">5</td>
+        <td>Conditioning on world state</td>
+        <td class="dim">336 tests</td>
+        <td>Zero survived</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">6</td>
+        <td>What commentators say</td>
+        <td class="dim">18 tests</td>
+        <td>None reached the bar</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">7</td>
+        <td>Token unlocks</td>
+        <td class="dim">24 tests, 74 tokens</td>
+        <td>Best t was 2.52</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr><tr>
+        <td class="dim">8</td>
+        <td>Buying gold after a fall</td>
+        <td class="dim">5 episodes in 21 years</td>
+        <td>Edge inside trading costs</td>
+        <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+</section>
+  <div class="two">
+<section class="panel" aria-labelledby="h-survivors">
+  <h2 id="h-survivors">Links that survived, and why they are still not usable</h2>
+  <div class="metrics">
+    <div class="metric plain"><div class="v">4,549</div><div class="l">hypotheses tested</div></div>
+    <div class="metric plain"><div class="v">11</div><div class="l">survived correction</div></div>
+    <div class="metric bad"><div class="v">0</div><div class="l">proven tradable</div></div>
+  </div>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>Driver</th><th>Move</th><th>Indian sector</th><th>Days</th><th>Effect</th><th>Events</th><th>Strength</th></tr></thead>
+    <tbody>
+      <tr>
+          <td>China Shanghai</td>
+          <td class="dim">fall</td>
+          <td>public sector banks</td>
+          <td class="num">20</td>
+          <td class="num neg">-5.55%</td>
+          <td class="num warn">24</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:70.4%"></span></span><span class="t">t 4.23</span></td>
+        </tr><tr>
+          <td>long treasuries</td>
+          <td class="dim">rise</td>
+          <td>public sector banks</td>
+          <td class="num">20</td>
+          <td class="num neg">-5.12%</td>
+          <td class="num warn">11</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:56.2%"></span></span><span class="t">t 3.37</span></td>
+        </tr><tr>
+          <td>Australia equities</td>
+          <td class="dim">fall</td>
+          <td>metals</td>
+          <td class="num">20</td>
+          <td class="num neg">-4.13%</td>
+          <td class="num warn">14</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:62.7%"></span></span><span class="t">t 3.76</span></td>
+        </tr><tr>
+          <td>Australia equities</td>
+          <td class="dim">fall</td>
+          <td>metals</td>
+          <td class="num">5</td>
+          <td class="num neg">-2.65%</td>
+          <td class="num warn">16</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:68.9%"></span></span><span class="t">t 4.13</span></td>
+        </tr><tr>
+          <td>copper</td>
+          <td class="dim">fall</td>
+          <td>consumer staples</td>
+          <td class="num">20</td>
+          <td class="num pos">1.89%</td>
+          <td class="num ">41</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:54.3%"></span></span><span class="t">t 3.26</span></td>
+        </tr><tr>
+          <td>commodity basket</td>
+          <td class="dim">rise</td>
+          <td>real estate</td>
+          <td class="num">5</td>
+          <td class="num pos">1.71%</td>
+          <td class="num ">30</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:64.3%"></span></span><span class="t">t 3.86</span></td>
+        </tr><tr>
+          <td>Australia equities</td>
+          <td class="dim">rise</td>
+          <td>banks</td>
+          <td class="num">5</td>
+          <td class="num pos">1.46%</td>
+          <td class="num warn">13</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:56.7%"></span></span><span class="t">t 3.40</span></td>
+        </tr><tr>
+          <td>soybeans</td>
+          <td class="dim">fall</td>
+          <td>consumer staples</td>
+          <td class="num">5</td>
+          <td class="num pos">1.43%</td>
+          <td class="num ">37</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:54.5%"></span></span><span class="t">t 3.27</span></td>
+        </tr><tr>
+          <td>Brent crude</td>
+          <td class="dim">rise</td>
+          <td>metals</td>
+          <td class="num">5</td>
+          <td class="num pos">1.22%</td>
+          <td class="num ">80</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:61.1%"></span></span><span class="t">t 3.66</span></td>
+        </tr><tr>
+          <td>aerospace and defence</td>
+          <td class="dim">fall</td>
+          <td>metals</td>
+          <td class="num">1</td>
+          <td class="num neg">-1.11%</td>
+          <td class="num ">33</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:63.0%"></span></span><span class="t">t 3.78</span></td>
+        </tr><tr>
+          <td>oil fund</td>
+          <td class="dim">rise</td>
+          <td>metals</td>
+          <td class="num">5</td>
+          <td class="num pos">1.10%</td>
+          <td class="num ">72</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:57.1%"></span></span><span class="t">t 3.43</span></td>
+        </tr>
+    </tbody>
+  </table></div>
+  <p class="note">Every row here is <span class="light weak" role="img" aria-label="UNPROVEN">UNPROVEN</span>. Amber event counts rest on fewer than 25 separate events. At a 10% false discovery rate about one row is expected to be false, and the mechanisms are unverified.</p>
+</section>
+<section class="panel" aria-labelledby="h-lead">
+  <h2 id="h-lead">Describes, or leads?</h2>
+  <div class="metrics">
+    <div class="metric good"><div class="v">12.86</div><div class="l">strength using the same day</div></div>
+    <div class="metric bad"><div class="v">0.05</div><div class="l">strength using only what was known first</div></div>
+    <div class="metric plain"><div class="v">900</div><div class="l">independent periods</div></div>
+  </div>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>Pair</th><th>Same day</th><th>Known in advance</th><th>Periods</th><th>Usable?</th></tr></thead>
+    <tbody>
+      <tr>
+          <td>gold/silver</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:99.3%"></span></span><span class="t">t 18.86</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -3.52</span></td>
+          <td class="num dim">89</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>gold/dollar</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:33.0%"></span></span><span class="t">t 6.27</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -3.76</span></td>
+          <td class="num dim">89</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>silver/dollar</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:28.0%"></span></span><span class="t">t 5.31</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -2.23</span></td>
+          <td class="num dim">89</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>copper/world-technology</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:23.9%"></span></span><span class="t">t 4.55</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -0.20</span></td>
+          <td class="num dim">89</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>nifty/sp500</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:18.1%"></span></span><span class="t">t 3.43</span></td>
+          <td class="meter"><span class="track"><span class="bar good-bar" style="width:24.4%"></span></span><span class="t">t 4.63</span></td>
+          <td class="num dim">73</td>
+          <td><span class="light yes" role="img" aria-label="YES">YES</span></td>
+        </tr><tr>
+          <td>oil/dollar</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:13.0%"></span></span><span class="t">t 2.47</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -0.07</span></td>
+          <td class="num dim">77</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>gold/us-10y</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:12.3%"></span></span><span class="t">t 2.33</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -2.58</span></td>
+          <td class="num dim">89</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>bitcoin/world-technology</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:12.0%"></span></span><span class="t">t 2.28</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -0.17</span></td>
+          <td class="num dim">47</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>nifty/oil</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:10.9%"></span></span><span class="t">t 2.07</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -1.21</span></td>
+          <td class="num dim">72</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>india-it/world-technology</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:5.6%"></span></span><span class="t">t 1.07</span></td>
+          <td class="meter"><span class="track"><span class="bar good-bar" style="width:21.1%"></span></span><span class="t">t 4.02</span></td>
+          <td class="num dim">73</td>
+          <td><span class="light yes" role="img" aria-label="YES">YES</span></td>
+        </tr><tr>
+          <td>nifty/rupee</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:0.6%"></span></span><span class="t">t 0.11</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -1.22</span></td>
+          <td class="num dim">66</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr><tr>
+          <td>bitcoin/gold</td>
+          <td class="meter"><span class="track"><span class="bar dim-bar" style="width:1.3%"></span></span><span class="t">t -0.25</span></td>
+          <td class="meter"><span class="track"><span class="bar" style="width:0.0%"></span></span><span class="t">t -0.39</span></td>
+          <td class="num dim">47</td>
+          <td><span class="light no" role="img" aria-label="NO">NO</span></td>
+        </tr>
+    </tbody>
+  </table></div>
+  <p class="note">Same day means both moved together, which cannot be acted on. Only the two pairs marked YES lead, and both are the known United States overnight effect.</p>
+</section></div>
+  <div class="two">
+<section class="panel" aria-labelledby="h-lookback">
+  <h2 id="h-lookback">How much history to use</h2>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>Window</th><th>Error against what happened next</th><th>Wins</th></tr></thead>
+    <tbody>
+      <tr class="">
+          <td>60 days</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:71.9%"></span></span><span class="t">0.144</span></td>
+          <td class="num dim">22%</td>
+        </tr><tr class="best">
+          <td>125 days</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:60.8%"></span></span><span class="t">0.122</span></td>
+          <td class="num dim">20%</td>
+        </tr><tr class="">
+          <td>250 days</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:60.8%"></span></span><span class="t">0.122</span></td>
+          <td class="num dim">13%</td>
+        </tr><tr class="">
+          <td>500 days</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:66.6%"></span></span><span class="t">0.133</span></td>
+          <td class="num dim">14%</td>
+        </tr><tr class="">
+          <td>1000 days</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:64.7%"></span></span><span class="t">0.129</span></td>
+          <td class="num dim">14%</td>
+        </tr><tr class="">
+          <td>everything</td>
+          <td class="meter"><span class="track"><span class="bar" style="width:71.2%"></span></span><span class="t">0.142</span></td>
+          <td class="num dim">18%</td>
+        </tr>
+    </tbody>
+  </table></div>
+  <p class="note">722 independent test points. Six windows competing at random would each win about 17%, so the choice barely matters.</p>
+</section>
+<section class="panel" aria-labelledby="h-unlocks">
+  <h2 id="h-unlocks">Token unlocks</h2>
+  <div class="metrics">
+    <div class="metric plain"><div class="v">74</div><div class="l">tokens</div></div>
+    <div class="metric plain"><div class="v">708</div><div class="l">isolated unlock events</div></div>
+    <div class="metric plain"><div class="v">24</div><div class="l">tests run</div></div>
+    <div class="metric bad"><div class="v">2.52</div><div class="l">best result, bar is 3.0</div></div>
+  </div>
+</section></div>
+  
+<section class="panel" aria-labelledby="h-gaps">
+  <h2 id="h-gaps">What cannot be answered yet</h2>
+  <div class="metrics">
+    <div class="metric good"><div class="v">75</div><div class="l">answered from data</div></div>
+    <div class="metric bad"><div class="v">45</div><div class="l">blocked, data never fetched</div></div>
+    <div class="metric plain"><div class="v">76</div><div class="l">no data could answer</div></div>
+  </div>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>Topic</th><th>Questions blocked</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>crypto</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:100.0%"></span></span><span class="t">11</span></td>
+      </tr><tr>
+        <td>india</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:100.0%"></span></span><span class="t">11</span></td>
+      </tr><tr>
+        <td>technology</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:90.9%"></span></span><span class="t">10</span></td>
+      </tr><tr>
+        <td>gold</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:81.8%"></span></span><span class="t">9</span></td>
+      </tr><tr>
+        <td>silver</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:27.3%"></span></span><span class="t">3</span></td>
+      </tr><tr>
+        <td>across</td>
+        <td class="meter"><span class="track"><span class="bar bad-bar" style="width:9.1%"></span></span><span class="t">1</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+  <p class="note">None of these is blocked by cost or law. Each is blocked by data that has not been downloaded.</p>
+</section>
+  
+<section class="panel" aria-labelledby="h-sources">
+  <h2 id="h-sources">Sources</h2>
+  <div class="metrics">
+    <div class="metric plain"><div class="v">52</div><div class="l">sources registered</div></div>
+    <div class="metric good"><div class="v">48</div><div class="l">reachable from here</div></div>
+    <div class="metric bad"><div class="v">8</div><div class="l">refuse this machine</div></div>
+    <div class="metric plain"><div class="v">10,261</div><div class="l">items collected</div></div>
+    <div class="metric plain"><div class="v">2.96M</div><div class="l">words stored</div></div>
+    <div class="metric plain"><div class="v">10.9 yr</div><div class="l">history depth</div></div>
+  </div>
+  
+    <h3>record</h3>
+    <ul class="chips">
+      <li class="chip ok" title="https://www.federalregister.gov/api/v1/documents.json?per_page=50&amp;order=newest">United States Federal Register</li><li class="chip ok" title="https://www.sec.gov/news/pressreleases.rss">Securities and Exchange Commission press</li><li class="chip ok" title="https://www.ecb.europa.eu/rss/press.html">European Central Bank press</li><li class="chip ok" title="https://openapi.twse.com.tw/v1/opendata/t187ap05_L">Taiwan Stock Exchange monthly revenue</li><li class="chip ok" title="https://publicreporting.cftc.gov/resource/6dca-aqww.json?$limit=500&amp;$order=report_date_as_yyyy_mm_dd%20DESC">Commodity Futures Trading Commission positioning</li><li class="chip no" title="https://www.treasury.gov/ofac/downloads/sdn.csv">Office of Foreign Assets Control sanctions list</li><li class="chip ok" title="https://api.llama.fi/protocols">DeFiLlama protocol and exchange data</li><li class="chip ok" title="https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&amp;order=market_cap_desc&amp;per_page=100&amp;page=1">CoinGecko market data</li><li class="chip ok" title="https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt">National Oceanic and Atmospheric Administration climate index</li>
+    </ul>
+    <h3>voice</h3>
+    <ul class="chips">
+      <li class="chip ok" title="https://feeds.bbci.co.uk/news/business/rss.xml">BBC business</li><li class="chip ok" title="https://www.aljazeera.com/xml/rss/all.xml">Al Jazeera</li><li class="chip ok" title="https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&amp;id=100003114">CNBC</li><li class="chip ok" title="https://finance.yahoo.com/news/rssindex">Yahoo Finance</li><li class="chip ok" title="https://news.google.com/rss/search?q=when:2d+allinurl:reuters.com&amp;hl=en-US&amp;gl=US&amp;ceid=US:en">Reuters through search</li><li class="chip ok" title="https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-IN&amp;gl=IN&amp;ceid=IN:en">Google News business</li><li class="chip ok" title="https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms">Economic Times markets</li><li class="chip ok" title="https://www.business-standard.com/rss/markets-106.rss">Business Standard markets</li><li class="chip ok" title="https://www.livemint.com/rss/markets">Livemint markets</li><li class="chip ok" title="https://www.thehindubusinessline.com/markets/feeder/default.rss">The Hindu BusinessLine</li><li class="chip ok" title="https://www.thehindubusinessline.com/markets/gold-and-silver/feeder/default.rss">The Hindu BusinessLine gold and silver</li><li class="chip ok" title="https://techcrunch.com/feed/">TechCrunch</li><li class="chip ok" title="https://feeds.arstechnica.com/arstechnica/index">Ars Technica</li><li class="chip ok" title="https://www.theverge.com/rss/index.xml">The Verge</li><li class="chip ok" title="https://hnrss.org/frontpage?points=100">Hacker News front page</li><li class="chip ok" title="https://semianalysis.com/feed/">SemiAnalysis</li><li class="chip ok" title="https://cointelegraph.com/rss">Cointelegraph</li><li class="chip ok" title="https://decrypt.co/feed">Decrypt</li><li class="chip ok" title="https://www.theblock.co/rss.xml">The Block</li><li class="chip ok" title="https://bitcoinmagazine.com/feed">Bitcoin Magazine</li><li class="chip ok" title="https://www.mining.com/feed/">Mining.com</li><li class="chip ok" title="https://www.northernminer.com/feed/">The Northern Miner</li><li class="chip ok" title="http://export.arxiv.org/api/query?search_query=cat:econ.GN&amp;sortBy=submittedDate&amp;sortOrder=descending&amp;max_results=50">arXiv economics papers</li><li class="chip ok" title="http://export.arxiv.org/api/query?search_query=cat:cs.AI&amp;sortBy=submittedDate&amp;sortOrder=descending&amp;max_results=50">arXiv artificial intelligence papers</li><li class="chip ok" title="http://export.arxiv.org/api/query?search_query=cat:q-fin.ST&amp;sortBy=submittedDate&amp;sortOrder=descending&amp;max_results=50">arXiv financial mathematics</li><li class="chip ok" title="https://back.nber.org/rss/new.xml">National Bureau of Economic Research</li><li class="chip no" title="https://www.imf.org/en/Blogs/rss">International Monetary Fund blog</li><li class="chip no" title="https://www.bis.org/doclist/all_rss.xml">Bank for International Settlements</li><li class="chip ok" title="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/8a94442e-5a74-4fa2-8b8d-ae27003a8d6b/982f5071-765c-403d-969d-ae27003a8d83/podcast.rss">Bloomberg Odd Lots</li><li class="chip ok" title="https://feeds.megaphone.fm/TCP6464651487">Animal Spirits</li><li class="chip ok" title="https://palisadesradio.ca/feed/podcast">Palisades Gold Radio</li><li class="chip ok" title="https://feeds.megaphone.fm/CLS2859450455">Invest Like the Best</li><li class="chip ok" title="https://feeds.transistor.fm/acquired">Acquired</li><li class="chip ok" title="https://feeds.megaphone.fm/TCP4771071679">The Compound and Friends</li><li class="chip ok" title="https://rss.buzzsprout.com/2326401.rss">Kitco Mining</li><li class="chip ok" title="https://lexfridman.com/feed/podcast/">Lex Fridman Podcast</li><li class="chip ok" title="https://feeds.megaphone.fm/LSHML4761942757">Unchained</li><li class="chip ok" title="https://sharptech.fm/feed/podcast">Sharp Tech</li><li class="chip ok" title="https://feeds.simplecast.com/JGE3yC0V">The a16z Show</li><li class="chip ok" title="https://feed.podbean.com/ttmygh/feed.xml">The Grant Williams Podcast</li><li class="chip ok" title="https://feeds.megaphone.fm/TIFM6133783130">The Meb Faber Show</li><li class="chip ok" title="https://feeds.flightcast.com/p83fuj0y0u58o82l41xei7zo.xml">Bankless</li><li class="chip no" title="https://feeds.simplecast.com/54nAGcIl">Forward Guidance</li>
+    </ul>
+  <h3>refuse this machine</h3>
+  <ul class="chips">
+    <li class="chip no" title="refuses this client, reached through a search proxy instead, headlines only">Reuters direct feeds</li><li class="chip no" title="the proxy service returned an error">Associated Press</li><li class="chip no" title="no feed exists, the endpoints return a web page, so this needs page parsing rather than a feed reader">Reserve Bank of India press releases</li><li class="chip no" title="the response was not a valid feed">Federal Reserve press</li><li class="chip no" title="server refused, and it is a metals dealer site so the loss is small">Kitco news</li><li class="chip no" title="server refused, other Indian outlets cover the same ground">Moneycontrol</li><li class="chip no" title="feed works but article pages are behind payment, so only headlines are available">Financial Times</li><li class="chip no" title="feed works but article pages refuse this machine">MarketWatch</li>
+  </ul>
+  <p class="note">Only <strong>9</strong> statements across the whole archive were specific enough to be scored later, which is why source scoring cannot work as intended.</p>
+</section>
+  
+<section class="panel" aria-labelledby="h-pred">
+  <h2 id="h-pred">Predictions on record</h2>
+  <div class="scroll" tabindex="0" role="region" aria-label="scrollable table"><table>
+    <thead><tr><th>Made</th><th>Prediction</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td class="dim">6 Sep 2026</td><td>Token unlocks will fail</td><td class="pos">Correct, failed all four criteria</td></tr>
+      <tr><td class="dim">6 Sep 2026</td><td>Crypto ledger will fail</td><td class="dim">Not yet tested</td></tr>
+      <tr><td class="dim">6 Sep 2026</td><td>Oil to household costs: real but too slow</td><td class="dim">Not yet tested</td></tr>
+      <tr><td class="dim">6 Sep 2026</td><td>Scheduled events will not survive correction</td><td class="dim">Not yet tested</td></tr>
+    </tbody>
+  </table></div>
+  <div class="metrics">
+    <div class="metric plain"><div class="v">1</div><div class="l">predictions scored</div></div>
+    <div class="metric good"><div class="v">1</div><div class="l">correct</div></div>
+    <div class="metric bad"><div class="v">0</div><div class="l">predictions about a price</div></div>
+  </div>
+  <p class="note">Every prediction here is about my own work, not about a market. One correct call is not a record.</p>
+</section>
+</main>
+</body>
+</html>
